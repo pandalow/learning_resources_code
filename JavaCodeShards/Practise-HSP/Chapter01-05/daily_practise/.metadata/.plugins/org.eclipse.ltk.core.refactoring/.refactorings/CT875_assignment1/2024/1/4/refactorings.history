@@ -1,4 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<session version="1.0">
-<refactoring comment="Move 2 elements to &apos;CT875_assignment2/src&apos;&#x0A;- Original project: &apos;CT875_assignment1&apos;&#x0A;- Destination element: &apos;CT875_assignment2/src&apos;&#x0A;- Original elements:&#x0A;     Worker.java&#x0A;     Workaholic.java&#x0A;- Update references to refactored element" description="Move compilation units" destination="=CT875_assignment2/src" element1="/src&lt;{Worker.java" element2="/src&lt;{Workaholic.java" files="0" flags="589830" folders="0" id="org.eclipse.jdt.ui.move" policy="org.eclipse.jdt.ui.moveResources" qualified="false" references="true" stamp="1705839590357" units="2" version="1.0"/>
-</session>

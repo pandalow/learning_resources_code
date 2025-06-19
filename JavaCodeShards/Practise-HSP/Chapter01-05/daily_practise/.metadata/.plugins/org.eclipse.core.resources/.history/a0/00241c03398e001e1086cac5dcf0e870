@@ -1,5 +1,0 @@
-package lvo;
-
-public interface SerializationHandler<E> {
-	
-}

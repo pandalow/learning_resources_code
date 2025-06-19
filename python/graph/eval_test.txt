@@ -1,0 +1,1 @@
+{'user': {'name': 'Alice', 'age': 25, 'hobbies': ['reading', 'hiking', 'coding']}, 'scores': [95, 87, 90], 'active': True}
