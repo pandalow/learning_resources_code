@@ -3784,10 +3784,8 @@ C++库 chrono 不需要操作系统库
         *~Timer() {*
             this->end = std::chrono::high_resolution_clock::now();
             this->duration = end - start;
-
             float ms = duration.count() * 1000.0f;
             std::cout << "Timer took" << ms << "ms" << std::endl;
-
         }
 
     };
@@ -4423,8 +4421,151 @@ GCC / Clang 的做法
   
   - 右键项目 - 属性 - C/C++ - 预编译头 换成不使用预编译头
     上方菜单栏点击 工具 - 选项 - 项目和解决方案 - VC++项目设置 生成计时改为 是
-    
 
 ## Dynamic Cast
 
 1. dynamic_cast是专门用于沿继承层次结构进行的强制类型转换 比如想从派生类型转换为基类类型 或者从基类类型转换为派生类型
+
+2. 好的，深入讲清楚 `dynamic_cast` 的语义、前提、返回规则、典型用法与坑点。
+   基本作用
+   
+   * 在“运行时”做**安全的**类型转换（RTTI 支持）。
+   
+   * 常用于**向下转型**（Base* → Derived*）或**横向转型**（同一继承树不同分支的基类指针之间，通过共同的最派生对象找到另一侧）。
+   
+   * 只能用于**多态类型**（基类里至少有一个 `virtual` 成员，常见是虚析构）。
+   
+   前提条件
+   
+   * 源类型必须是**指向/引用某个多态类**的“基类或子类”。最常见是 `Base*`、`Base&`。
+   
+   * 目标类型是某个相关类的“指针或引用”，比如 `Derived*`、`Derived&`、或另一侧的 `Sibling*`。
+   
+   * 访问控制要通过（private/protected 继承或成员可见性不足会导致编译期错误）。
+   
+   * RTTI 没被禁用（例如编译器开了 `-fno-rtti` 会直接编译不过）。
+   
+   返回与失败行为
+   
+   * 指针版本：`dynamic_cast<T*>(pBase)`
+     
+     * 成功：返回有效指向目标子对象的指针（带正确偏移）。
+     
+     * 失败：返回 `nullptr`（不抛异常）。
+   
+   * 引用版本：`dynamic_cast<T&>(baseRef)`
+     
+     * 成功：得到目标引用。
+     
+     * 失败：抛出 `std::bad_cast` 异常（必须 `try/catch`）。
+   
+   * 转成 `void*`：`dynamic_cast<void*>(pBase)`
+     
+     * 返回“**最派生对象**”的首地址指针（常用于定位完整对象起始地址）。要求源类型为多态。
+   
+   与 `static_cast` 的关键差异
+   
+   * `static_cast` 只在**编译期**检查类型关系，不做运行时验证；向下转型时容易产生未定义行为。
+   
+   * `dynamic_cast` 在**运行时**根据实际对象类型检查，失败安全（nullptr/异常）。
+   
+   * 成本：`dynamic_cast` 需要 RTTI 查找和层次遍历，通常是小常数开销，但在复杂多继承/热循环中要谨慎。
+   
+   典型用法：安全的向下转型
+   
+       struct Base { virtual ~Base() = default; };
+       struct Derived : Base { void foo() {} };
+       
+       void f(Base* b) {
+           if (auto d = dynamic_cast<Derived*>(b)) {
+               d->foo();           // 安全：只有真的是 Derived 才会进来
+           } else {
+               // 不是 Derived
+           }
+       }
+   
+   横向转型（side cast）：多重继承分支之间
+   
+       struct A { virtual ~A() = default; };
+       struct B { virtual ~B() = default; };
+       struct C : A, B {};
+       
+       void g(A* pa) {
+           if (auto pb = dynamic_cast<B*>(pa)) {   // 通过最派生对象 C，从 A* 横转到 B*
+               // 成功只有在实际对象是 C（或同时继承 A、B 的类型）
+           }
+       }
+   
+   引用失败抛异常
+   
+       void h(Base& br) {
+           try {
+               Derived& dr = dynamic_cast<Derived&>(br); // 若失败抛 std::bad_cast
+               dr.foo();
+           } catch (const std::bad_cast& e) {
+               // 处理失败
+           }
+       }
+   
+   与访问控制、继承方式的关系
+   
+   * `dynamic_cast` 受“**可访问性**”限制：如果在当前上下文里，从目标类型看不见所需的基类路径（比如私有继承导致不可访问），则**编译期报错**，不是运行期失败。
+   
+   * 公有继承的向下、横向转型最常见；私有/受保护继承经常会触发不可访问。
+   
+   与非多态类
+   
+   * 若尝试从/到非多态类做“向下或横向” `dynamic_cast`，**编译期报错**。
+   
+   * 唯一特殊的是：`dynamic_cast<void*>` 也要求源为多态类指针。
+   
+   复杂层次、虚继承与菱形结构
+   
+   * `dynamic_cast` 能正确处理虚继承/菱形结构下的指针偏移，定位到正确的子对象。
+   
+   * 如果目标类型在层次中**不唯一或不确定**（存在二义性），转型会**失败**（指针得 nullptr / 引用抛异常）。
+   
+   性能注意
+   
+   * 单次开销通常很小（实现依赖编译器与层次结构，典型为沿 vptr/RTTI 数据结构做检查）。
+   
+   * 不建议在**高频热路径**里频繁使用；可以通过虚函数、访客模式（visitor）、`std::variant` 等设计规避大量 RTTI 查询。
+   
+   何时应当使用
+   
+   * 你确实需要基于**实际运行时类型**做分支逻辑，并且对象来自一个“**不受你控制**的抽象接口”（比如框架回调给你 `Base*`）。
+   
+   * 你需要**安全**的向下/横向转换，不能冒未定义行为的风险。
+   
+   * 只偶尔使用；更多时候，优先通过**虚函数（多态）**把类型判断转为“行为分发”，或使用**访问者/变体**等更清晰的设计。
+   
+   几个常见坑
+   
+   * 忘了给基类加虚函数（典型是忘记虚析构），导致 `dynamic_cast` 编译不过。
+   
+   * 用引用版本没做异常处理，失败直接抛 `std::bad_cast`。
+   
+   * 把设计问题丢给 RTTI：大量 `dynamic_cast` 往往提示**抽象设计**可以更好（考虑虚函数、访问者）。
+   
+   * RTTI 被禁用或跨模块 RTTI 配置不一致，可能导致奇怪行为或链接问题（工程配置要统一）。
+   
+   小结一句话
+   
+   * 当你“**不知道**手里这个 `Base*` 背后是不是 `Derived`，但又**必须**在运行时判断”时，用 `dynamic_cast`；成功才用它，失败安全兜底。其他情况优先考虑静态多态（模板）、虚函数分发或 `std::variant`。
+   * 
+   
+   ```c++
+   Player* p1 = dynamic_cast<Player*>(e1);
+   if (dynamic_cast<Player*>(e1))
+   // e1是否是Player的实例
+   // 如果是 dynamic_cast返回值非空 可以进入条件语句
+   // 如果不是 dynamic_cast返回值为nullptr 无法进入条件语句
+   // 当然这里完全可以写成 if (p1)
+   {
+       // do something
+   }
+   ```
+   
+   
+
+
